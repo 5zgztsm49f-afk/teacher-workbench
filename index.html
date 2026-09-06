@@ -331,7 +331,7 @@ const weekOfDay = () => ['日','一','二','三','四','五','六'][new Date().g
 /* ---------- 中央数据库（localStorage 自动保存） ---------- */
 const DB_KEY = 'TW_V2_DB';
 const DB_DEFAULT = {
-  palette: { x: 30, y: 20, hidden: false },
+  palette: { x: 30, y: 20, hidden: false, color: null },
   timetable: {
     season: 'winter',
     class: { weeks: {} },   // weeks: {1:{r{row}c{col}:课程}}
@@ -752,8 +752,32 @@ function paletteHTML(){
   return `<div class="palette" id="palette" style="left:${DB.palette.x}px;top:${DB.palette.y}px">
     <div class="core"><div class="d">${fmtCN(todayStr())}</div><div class="q">${esc(q)}</div></div>${sw}</div>`;
 }
-function pickColor(c){ document.documentElement.style.setProperty('--pink-deep', c); toast('已选择颜色 ' + c); }
+/* 颜色解析：支持 #hex / #rgb / rgb() 三种写法 */
+function hexToRgb(c){
+  c = (c || '').trim();
+  if (c[0] === '#'){ let h = c.slice(1); if (h.length === 3) h = h.split('').map(x => x + x).join(''); if (/^[0-9a-fA-F]{6}$/.test(h)) return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; }
+  const m = c.match(/rgba?\(([^)]+)\)/i); if (m){ const p = m[1].split(',').map(x => parseFloat(x)); return [p[0]||0, p[1]||0, p[2]||0]; }
+  return null;
+}
+const _clamp = v => Math.max(0, Math.min(255, Math.round(v)));
+/* 应用主题色：同时改主色 --pink（按钮/导航/顶栏，肉眼可见）和深一档的 --pink-deep（边框/悬停） */
+function applyPaletteColor(c){
+  const base = hexToRgb(c) || [249, 213, 224];           // 默认奶油粉 #F9D5E0
+  const main = base.map(_clamp);
+  const deep = main.map(v => _clamp(v * 0.78));
+  const rs = a => `rgb(${a[0]},${a[1]},${a[2]})`;
+  document.documentElement.style.setProperty('--pink', rs(main));
+  document.documentElement.style.setProperty('--pink-deep', rs(deep));
+}
+function pickColor(c){
+  if (!hexToRgb(c)) return;
+  applyPaletteColor(c);
+  DB.palette.color = c; dbSave();
+  toast('已应用主题色 ' + c);
+}
 function rerenderPalette(){ const w = $('#paletteWrap'); if (w){ w.innerHTML = paletteHTML(); initPalette(); } }
+/* 启动时恢复已保存的主题色（刷新/重开不丢失） */
+function applySavedPalette(){ if (DB.palette && DB.palette.color) applyPaletteColor(DB.palette.color); }
 function initPalette(){
   const p = $('#palette'); if (!p) return;
   let sx, sy, ox, oy, moved = false, pressT = null, dragged = false;
@@ -763,7 +787,7 @@ function initPalette(){
     if (e.pointerType === 'touch') return;
     // 点击色块 → 直接选色（不进入拖拽逻辑）
     if (e.target.classList.contains('sw')){
-      const c = e.target.style.background || e.target.title;
+      const c = e.target.title || e.target.style.background;
       if (c){ pickColor(c); e.preventDefault(); }
       return;
     }
@@ -774,7 +798,7 @@ function initPalette(){
   // 兜底：click 事件也处理色块（应对 pointerdown 被其他逻辑吞掉的情况）
   p.addEventListener('click', e => {
     if (e.target.classList.contains('sw')){
-      const c = e.target.style.background || e.target.title;
+      const c = e.target.title || e.target.style.background;
       if (c) pickColor(c);
     }
   });
@@ -3462,6 +3486,7 @@ function closeMobileNav(){
 document.addEventListener('DOMContentLoaded', () => {
   // 1. 加载数据库
   loadDB();
+  applySavedPalette();
   DB.docsDraft = DB.docsDraft || { type: '', title: '', text: '', keys: '' };
   renderAIStatus();
 
